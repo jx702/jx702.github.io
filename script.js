@@ -24,8 +24,39 @@ async function loadProjects() {
   const { data, error } = await db.from('projects').select('*').order('created_at', { ascending:false });
   if (error) { box.innerHTML = '<p class="muted">项目暂时无法加载。</p>'; console.error(error); return; }
   if (!data.length) { box.innerHTML = '<p class="muted">目前还没有项目，可以从 Admin 后台新增。</p>'; return; }
-  box.innerHTML = data.map(p => `<article class="card">${p.image_url ? `<img src="${escapeHtml(p.image_url)}" alt="${escapeHtml(p.title)}" loading="lazy">` : ''}<div class="card-body"><p class="tag">${escapeHtml(p.category || 'Project')}</p><h3>${escapeHtml(p.title)}</h3><p>${escapeHtml(p.description || '')}</p></div></article>`).join('');
+  box.innerHTML = data.map(p => `
+    <button class="project-card card" type="button" data-project-id="${escapeHtml(p.id)}">
+      ${p.image_url ? `<img src="${escapeHtml(p.image_url)}" alt="${escapeHtml(p.title)}" loading="lazy">` : '<div class="project-no-image">PROJECT</div>'}
+      <div class="card-body">
+        <p class="tag">${escapeHtml(p.category || 'Project')}</p>
+        <h3>${escapeHtml(p.title)}</h3>
+        <p>${escapeHtml(p.description || '')}</p>
+        ${p.content ? '<span class="read-more">阅读文章 →</span>' : ''}
+      </div>
+    </button>`).join('');
+  box.querySelectorAll('.project-card').forEach(btn => {
+    const project = data.find(p => String(p.id) === btn.dataset.projectId);
+    btn.addEventListener('click', () => openProject(project));
+  });
 }
+
+function openProject(project) {
+  if (!project) return;
+  const modal = $('projectModal'), content = $('projectModalContent');
+  if (!modal || !content) return;
+  content.innerHTML = `
+    <div class="modal-head">
+      <p class="eyebrow">PROJECT · ${escapeHtml(project.category || 'PROJECT')}</p>
+      <h2>${escapeHtml(project.title)}</h2>
+      ${project.description ? `<p class="project-modal-intro">${escapeHtml(project.description)}</p>` : ''}
+    </div>
+    ${project.image_url ? `<img class="project-modal-image" src="${escapeHtml(project.image_url)}" alt="${escapeHtml(project.title)}">` : ''}
+    ${project.content ? `<article class="project-article">${escapeHtml(project.content)}</article>` : '<div class="empty">这个项目还没有文章内容。</div>'}
+  `;
+  modal.classList.add('open'); modal.setAttribute('aria-hidden','false'); document.body.classList.add('modal-open');
+}
+
+function closeProject() { const modal=$('projectModal'); if (!modal) return; modal.classList.remove('open'); modal.setAttribute('aria-hidden','true'); document.body.classList.remove('modal-open'); }
 
 async function loadGallery() {
   const box = $('gallery-list'); if (!box) return;
@@ -57,7 +88,9 @@ async function initPublic() {
   await Promise.all([loadAbout(), loadProjects(), loadGallery()]);
   if ($('closeModal')) $('closeModal').addEventListener('click', closeAlbum);
   if ($('albumModal')) $('albumModal').addEventListener('click', e => { if (e.target === $('albumModal')) closeAlbum(); });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAlbum(); });
+  if ($('closeProjectModal')) $('closeProjectModal').addEventListener('click', closeProject);
+  if ($('projectModal')) $('projectModal').addEventListener('click', e => { if (e.target === $('projectModal')) closeProject(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeAlbum(); closeProject(); } });
 }
 
 async function initAdmin() {
@@ -81,9 +114,23 @@ async function loadAboutAdmin(){ const {data,error}=await db.from('site_content'
 async function saveAbout(){ const payload={id:1,name:$('aboutName').value.trim()||'Jimson',bio:$('aboutBio').value.trim(),interest:$('aboutInterest').value.trim(),current:$('aboutCurrent').value.trim(),website:$('aboutWebsite').value.trim()||'Jimson的网'}; $('aboutMsg').textContent='保存中……'; const {error}=await db.from('site_content').upsert(payload,{onConflict:'id'}); $('aboutMsg').textContent=error?'保存失败：'+error.message:'保存成功！'; }
 
 async function uploadProjectImage(file){ if(!file)return {url:null,path:null}; if(!file.type.startsWith('image/')) throw new Error('项目照片只能是图片。'); const path=filePath(file.name,'projects'); const {error}=await db.storage.from('gallery').upload(path,file,{contentType:file.type,upsert:false}); if(error)throw error; return {url:publicUrl(path),path}; }
-async function addProject(){ const title=$('pt').value.trim(),category=$('ptag').value.trim()||'Project',description=$('pd').value.trim(),file=$('projectPhoto').files[0]; if(!title)return alert('请先填写项目标题。'); $('projectMsg').textContent='发布中……'; try{const image=await uploadProjectImage(file); const {error}=await db.from('projects').insert({title,category,description,image_url:image.url,image_path:image.path}); if(error){if(image.path)await db.storage.from('gallery').remove([image.path]);throw error;} $('pt').value='';$('ptag').value='';$('pd').value='';$('projectPhoto').value='';$('projectMsg').textContent='项目发布成功！';await renderAdmin();}catch(e){$('projectMsg').textContent='发布失败：'+e.message;} }
+async function addProject(){ const title=$('pt').value.trim(),category=$('ptag').value.trim()||'Project',description=$('pd').value.trim(),content=$('pc').value.trim(),file=$('projectPhoto').files[0]; if(!title)return alert('请先填写项目标题。'); $('projectMsg').textContent='发布中……'; try{const image=await uploadProjectImage(file); const {error}=await db.from('projects').insert({title,category,description,content,image_url:image.url,image_path:image.path}); if(error){if(image.path)await db.storage.from('gallery').remove([image.path]);throw error;} $('pt').value='';$('ptag').value='';$('pd').value='';$('pc').value='';$('projectPhoto').value='';$('projectMsg').textContent='项目发布成功！';await renderAdmin();}catch(e){$('projectMsg').textContent='发布失败：'+e.message;} }
 
-async function editProject(id, oldTitle, oldCategory, oldDescription){ const title=prompt('项目标题：',oldTitle);if(title===null)return;const category=prompt('分类：',oldCategory||'Project');if(category===null)return;const description=prompt('项目介绍：',oldDescription||'');if(description===null)return;const fileInput=document.createElement('input');fileInput.type='file';fileInput.accept='image/*';const wantImage=confirm('要更换项目照片吗？\n点击「确定」选择新照片；点击「取消」保留原照片。');let image=null;if(wantImage){fileInput.click();await new Promise(resolve=>{fileInput.onchange=resolve;});if(fileInput.files[0])image=await uploadProjectImage(fileInput.files[0]);}const payload={title:title.trim(),category:category.trim()||'Project',description:description.trim()};if(image){payload.image_url=image.url;payload.image_path=image.path;}const {error}=await db.from('projects').update(payload).eq('id',id);if(error){if(image?.path)await db.storage.from('gallery').remove([image.path]);alert('修改失败：'+error.message);return;}await renderAdmin();}
+async function editProject(id, oldTitle, oldCategory, oldDescription, oldContent){
+  const title=prompt('项目标题：',oldTitle); if(title===null)return;
+  const category=prompt('分类：',oldCategory||'Project'); if(category===null)return;
+  const description=prompt('项目简介：',oldDescription||''); if(description===null)return;
+  const content=prompt('项目文章内容：\n（可以写多段文字）',oldContent||''); if(content===null)return;
+  const fileInput=document.createElement('input'); fileInput.type='file'; fileInput.accept='image/*';
+  const wantImage=confirm('要更换项目照片吗？\n点击「确定」选择新照片；点击「取消」保留原照片。');
+  let image=null;
+  if(wantImage){ fileInput.click(); await new Promise(resolve=>{fileInput.onchange=resolve;}); if(fileInput.files[0])image=await uploadProjectImage(fileInput.files[0]); }
+  const payload={title:title.trim(),category:category.trim()||'Project',description:description.trim(),content:content.trim()};
+  if(image){payload.image_url=image.url;payload.image_path=image.path;}
+  const {error}=await db.from('projects').update(payload).eq('id',id);
+  if(error){if(image?.path)await db.storage.from('gallery').remove([image.path]);alert('修改失败：'+error.message);return;}
+  await renderAdmin();
+}
 async function deleteProject(id,path){ if(!confirm('确定删除这个项目吗？'))return; const {error}=await db.from('projects').delete().eq('id',id);if(error){alert('删除失败：'+error.message);return;}if(path)await db.storage.from('gallery').remove([path]);await renderAdmin(); }
 
 async function createAlbum(){const title=$('albumTitle').value.trim(),description=$('albumDescription').value.trim();if(!title)return alert('请先填写相册名称。');$('albumMsg').textContent='创建中……';const {data,error}=await db.from('gallery_albums').insert({title,description}).select().single();if(error){$('albumMsg').textContent='创建失败：'+error.message;return;}$('albumTitle').value='';$('albumDescription').value='';$('albumMsg').textContent='相册创建成功！';await loadAlbumSelect();await renderAdmin();if(data)$('albumSelect').value=data.id;}
@@ -94,7 +141,7 @@ async function deleteAlbumPhoto(id,path){if(!confirm('确定删除这张照片�
 
 async function renderAdmin(){
   const {data:projects,error:pErr}=await db.from('projects').select('*').order('created_at',{ascending:false});
-  $('items').innerHTML=pErr?`<p class="status">${escapeHtml(pErr.message)}</p>`:projects.length?projects.map(p=>`<div class="admin-row"><div class="admin-row-main">${p.image_url?`<img class="admin-thumb" src="${escapeHtml(p.image_url)}" alt="">`:''}<div><strong>${escapeHtml(p.title)}</strong><span>${escapeHtml(p.category||'Project')}</span><p>${escapeHtml(p.description||'')}</p></div></div><div class="row-actions"><button class="btn" onclick='editProject(${p.id},${JSON.stringify(p.title)},${JSON.stringify(p.category||'')},${JSON.stringify(p.description||'')})'>编辑</button><button class="btn danger" onclick='deleteProject(${p.id},${JSON.stringify(p.image_path||'')})'>删除</button></div></div>`).join(''):'<p class="muted">暂无项目。</p>';
+  $('items').innerHTML=pErr?`<p class="status">${escapeHtml(pErr.message)}</p>`:projects.length?projects.map(p=>`<div class="admin-row"><div class="admin-row-main">${p.image_url?`<img class="admin-thumb" src="${escapeHtml(p.image_url)}" alt="">`:''}<div><strong>${escapeHtml(p.title)}</strong><span>${escapeHtml(p.category||'Project')}</span><p>${escapeHtml(p.description||'')}</p>${p.content?'<small class="article-indicator">有文章内容 · 可点击编辑</small>':''}</div></div><div class="row-actions"><button class="btn" onclick='editProject(${p.id},${JSON.stringify(p.title)},${JSON.stringify(p.category||'')},${JSON.stringify(p.description||'')},${JSON.stringify(p.content||'')})'>编辑</button><button class="btn danger" onclick='deleteProject(${p.id},${JSON.stringify(p.image_path||'')})'>删除</button></div></div>`).join(''):'<p class="muted">暂无项目。</p>';
   const {data:albums,error:aErr}=await db.from('gallery_albums').select('*').order('created_at',{ascending:false});
   if(aErr){$('albumAdminItems').innerHTML=`<p class="status">${escapeHtml(aErr.message)}</p>`;return;}
   const {data:photos,error:fErr}=await db.from('gallery_photos').select('*').order('created_at',{ascending:true});
