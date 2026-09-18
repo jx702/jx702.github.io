@@ -17,6 +17,18 @@ async function loadAbout() {
   if ($('about-interest')) $('about-interest').textContent = data.interest || '';
   if ($('about-current')) $('about-current').textContent = data.current || '';
   if ($('about-website')) $('about-website').textContent = data.website || '';
+  setProfileImages(data.profile_image_url || '');
+}
+
+function setProfileImages(url) {
+  const heroImg = $('hero-profile-image');
+  const heroPlaceholder = $('hero-profile')?.querySelector('.initial');
+  if (heroImg) { heroImg.src = url || ''; heroImg.style.display = url ? 'block' : 'none'; }
+  if (heroPlaceholder) heroPlaceholder.style.display = url ? 'none' : 'block';
+  const aboutImg = $('about-profile-image');
+  const aboutPlaceholder = $('about-photo-placeholder');
+  if (aboutImg) { aboutImg.src = url || ''; aboutImg.style.display = url ? 'block' : 'none'; }
+  if (aboutPlaceholder) aboutPlaceholder.style.display = url ? 'none' : 'grid';
 }
 
 async function loadProjects() {
@@ -100,6 +112,11 @@ async function initAdmin() {
   $('loginBtn').addEventListener('click', login);
   $('logoutBtn').addEventListener('click', logout);
   $('saveAboutBtn').addEventListener('click', saveAbout);
+  $('profilePhoto')?.addEventListener('change', () => {
+    const file=$('profilePhoto').files?.[0];
+    if(file){ const reader=new FileReader(); reader.onload=()=>updateProfilePreview(reader.result); reader.readAsDataURL(file); }
+  });
+  $('removeProfilePhotoBtn')?.addEventListener('click', removeProfilePhoto);
   $('addProjectBtn').addEventListener('click', addProject);
   $('createAlbumBtn').addEventListener('click', createAlbum);
   $('uploadAlbumPhotosBtn').addEventListener('click', uploadAlbumPhotos);
@@ -110,8 +127,68 @@ async function showDashboard(user) { $('login').style.display='none'; $('dashboa
 async function login() { const email=$('email').value.trim(), password=$('password').value; if(!email||!password){$('loginMsg').textContent='请输入 Email 和密码。';return;} $('loginMsg').textContent='登录中……'; const {error}=await db.auth.signInWithPassword({email,password}); $('loginMsg').textContent=error?`登录失败：${error.message}`:'登录成功'; }
 async function logout(){await db.auth.signOut();location.reload();}
 
-async function loadAboutAdmin(){ const {data,error}=await db.from('site_content').select('*').eq('id',1).maybeSingle(); if(error){$('aboutMsg').textContent='读取关于我失败：'+error.message;return;} if(!data)return; $('aboutName').value=data.name||'';$('aboutBio').value=data.bio||'';$('aboutInterest').value=data.interest||'';$('aboutCurrent').value=data.current||'';$('aboutWebsite').value=data.website||''; }
-async function saveAbout(){ const payload={id:1,name:$('aboutName').value.trim()||'Jimson',bio:$('aboutBio').value.trim(),interest:$('aboutInterest').value.trim(),current:$('aboutCurrent').value.trim(),website:$('aboutWebsite').value.trim()||'Jimson的网'}; $('aboutMsg').textContent='保存中……'; const {error}=await db.from('site_content').upsert(payload,{onConflict:'id'}); $('aboutMsg').textContent=error?'保存失败：'+error.message:'保存成功！'; }
+let currentProfilePath = '';
+
+function updateProfilePreview(url) {
+  const img = $('profilePreview');
+  const placeholder = $('profilePreviewPlaceholder');
+  if (img) { img.src = url || ''; img.style.display = url ? 'block' : 'none'; }
+  if (placeholder) placeholder.style.display = url ? 'none' : 'grid';
+}
+
+async function loadAboutAdmin(){
+  const {data,error}=await db.from('site_content').select('*').eq('id',1).maybeSingle();
+  if(error){$('aboutMsg').textContent='读取关于我失败：'+error.message;return;}
+  if(!data)return;
+  $('aboutName').value=data.name||'';
+  $('aboutBio').value=data.bio||'';
+  $('aboutInterest').value=data.interest||'';
+  $('aboutCurrent').value=data.current||'';
+  $('aboutWebsite').value=data.website||'';
+  currentProfilePath=data.profile_image_path||'';
+  updateProfilePreview(data.profile_image_url||'');
+}
+
+async function uploadProfileImage(file){
+  if(!file)return null;
+  if(!file.type.startsWith('image/')) throw new Error('个人照片只能是图片。');
+  const path=filePath(file.name,'profile');
+  const {error}=await db.storage.from('gallery').upload(path,file,{contentType:file.type,upsert:false});
+  if(error)throw error;
+  return {url:publicUrl(path),path};
+}
+
+async function saveAbout(){
+  const file=$('profilePhoto')?.files?.[0];
+  const payload={id:1,name:$('aboutName').value.trim()||'Jimson',bio:$('aboutBio').value.trim(),interest:$('aboutInterest').value.trim(),current:$('aboutCurrent').value.trim(),website:$('aboutWebsite').value.trim()||'Jimson的网'};
+  $('aboutMsg').textContent='保存中……';
+  let newImage=null;
+  try{
+    if(file) newImage=await uploadProfileImage(file);
+    if(newImage){ payload.profile_image_url=newImage.url; payload.profile_image_path=newImage.path; }
+    else { payload.profile_image_url=$('profilePreview')?.src || ''; payload.profile_image_path=currentProfilePath || ''; }
+    const {error}=await db.from('site_content').upsert(payload,{onConflict:'id'});
+    if(error){ if(newImage?.path) await db.storage.from('gallery').remove([newImage.path]); throw error; }
+    if(newImage && currentProfilePath && currentProfilePath!==newImage.path){ await db.storage.from('gallery').remove([currentProfilePath]); }
+    currentProfilePath=newImage?.path || currentProfilePath;
+    if($('profilePhoto')) $('profilePhoto').value='';
+    updateProfilePreview(payload.profile_image_url||'');
+    $('aboutMsg').textContent='保存成功！';
+  }catch(e){ $('aboutMsg').textContent='保存失败：'+e.message; }
+}
+
+async function removeProfilePhoto(){
+  $('aboutMsg').textContent='处理中……';
+  try{
+    const {error}=await db.from('site_content').update({profile_image_url:null,profile_image_path:null}).eq('id',1);
+    if(error)throw error;
+    if(currentProfilePath) await db.storage.from('gallery').remove([currentProfilePath]);
+    currentProfilePath='';
+    if($('profilePhoto')) $('profilePhoto').value='';
+    updateProfilePreview('');
+    $('aboutMsg').textContent='已恢复默认头像。';
+  }catch(e){ $('aboutMsg').textContent='操作失败：'+e.message; }
+}
 
 async function uploadProjectImage(file){ if(!file)return {url:null,path:null}; if(!file.type.startsWith('image/')) throw new Error('项目照片只能是图片。'); const path=filePath(file.name,'projects'); const {error}=await db.storage.from('gallery').upload(path,file,{contentType:file.type,upsert:false}); if(error)throw error; return {url:publicUrl(path),path}; }
 async function addProject(){ const title=$('pt').value.trim(),category=$('ptag').value.trim()||'Project',description=$('pd').value.trim(),content=$('pc').value.trim(),file=$('projectPhoto').files[0]; if(!title)return alert('请先填写项目标题。'); $('projectMsg').textContent='发布中……'; try{const image=await uploadProjectImage(file); const {error}=await db.from('projects').insert({title,category,description,content,image_url:image.url,image_path:image.path}); if(error){if(image.path)await db.storage.from('gallery').remove([image.path]);throw error;} $('pt').value='';$('ptag').value='';$('pd').value='';$('pc').value='';$('projectPhoto').value='';$('projectMsg').textContent='项目发布成功！';await renderAdmin();}catch(e){$('projectMsg').textContent='发布失败：'+e.message;} }
