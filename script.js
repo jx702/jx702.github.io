@@ -83,11 +83,10 @@ async function loadAllProjectsPage(){
     const data=await fetchProjects();
     if(!data.length){box.innerHTML='<p class="muted">目前还没有项目。</p>';return;}
     box.innerHTML=data.map(p=>`<button class="project-row" type="button" data-project-id="${escapeHtml(p.id)}">
-      <div class="project-row-thumb">${p.image_url?`<img src="${escapeHtml(p.image_url)}" alt="" loading="lazy">`:'<span>PROJECT</span>'}</div>
       <div class="project-row-main"><strong>${escapeHtml(p.title)}</strong><span>${escapeHtml(p.description || '')}</span></div>
       <div class="project-row-category">${escapeHtml(p.category || 'Project')}</div>
       <time class="project-row-date">${escapeHtml(formatDate(projectDateValue(p)))}</time>
-      <div class="project-row-arrow">→</div>
+      <div class="project-row-arrow" aria-hidden="true">→</div>
     </button>`).join('');
     box.querySelectorAll('.project-row').forEach(btn=>{const project=data.find(p=>String(p.id)===btn.dataset.projectId);btn.addEventListener('click',()=>openProject(project));});
   }catch(error){box.innerHTML='<p class="muted">作品暂时无法加载。</p>';console.error(error);}
@@ -298,6 +297,6 @@ async function renderAdmin(){
 }
 function selectAlbumForUpload(id){$('albumSelect').value=id;window.scrollTo({top:$('albumSelect').getBoundingClientRect().top+window.scrollY-120,behavior:'smooth'});}
 
-if($('project-list')||$('gallery-list'))initPublic();
+if($('project-list')||$('gallery-list')||$('projectModal'))initPublic();
 if($('projects-list'))loadAllProjectsPage();
 if($('login'))initAdmin();
