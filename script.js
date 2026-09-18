@@ -87,14 +87,35 @@ async function loadGallery() {
   box.querySelectorAll('.album-card').forEach(btn => btn.addEventListener('click', () => openAlbum(btn.dataset.albumId, albums, byAlbum)));
 }
 
+let currentAlbumPhotos = [];
+let currentPhotoIndex = 0;
+
 function openAlbum(albumId, albums, byAlbum) {
   const album = albums.find(a => a.id === albumId); if (!album) return;
   const photos = byAlbum[albumId] || [];
+  currentAlbumPhotos = photos;
   const modal = $('albumModal'), content = $('modalContent');
-  content.innerHTML = `<div class="modal-head"><p class="eyebrow">GALLERY</p><h2>${escapeHtml(album.title)}</h2><p class="muted">${escapeHtml(album.description || '')}</p></div>${photos.length ? `<div class="modal-gallery">${photos.map(p => `<figure><img src="${escapeHtml(publicUrl(p.image_path))}" alt="${escapeHtml(p.caption || album.title)}" loading="lazy">${p.caption ? `<figcaption>${escapeHtml(p.caption)}</figcaption>` : ''}</figure>`).join('')}</div>` : '<div class="empty">这个相册目前还没有照片。</div>'}`;
+  content.innerHTML = `<div class="modal-head"><p class="eyebrow">GALLERY</p><h2>${escapeHtml(album.title)}</h2><p class="muted">${escapeHtml(album.description || '')}</p></div>${photos.length ? `<div class="modal-gallery">${photos.map((p,i) => `<figure><button class="photo-thumb-button" type="button" data-photo-index="${i}" aria-label="放大查看第 ${i+1} 张照片"><img src="${escapeHtml(publicUrl(p.image_path))}" alt="${escapeHtml(p.caption || album.title)}" loading="lazy"></button>${p.caption ? `<figcaption>${escapeHtml(p.caption)}</figcaption>` : ''}</figure>`).join('')}</div>` : '<div class="empty">这个相册目前还没有照片。</div>'}`;
+  content.querySelectorAll('.photo-thumb-button').forEach(btn => btn.addEventListener('click', () => openPhotoLightbox(Number(btn.dataset.photoIndex))));
   modal.classList.add('open'); modal.setAttribute('aria-hidden','false'); document.body.classList.add('modal-open');
 }
-function closeAlbum() { const modal=$('albumModal'); if (!modal) return; modal.classList.remove('open'); modal.setAttribute('aria-hidden','true'); document.body.classList.remove('modal-open'); }
+function closeAlbum() { const modal=$('albumModal'); if (!modal) return; modal.classList.remove('open'); modal.setAttribute('aria-hidden','true'); closePhotoLightbox(); if (!document.querySelector('.modal.open')) document.body.classList.remove('modal-open'); }
+
+function openPhotoLightbox(index) {
+  if (!currentAlbumPhotos.length) return;
+  currentPhotoIndex = Math.max(0, Math.min(index, currentAlbumPhotos.length - 1));
+  const photo = currentAlbumPhotos[currentPhotoIndex];
+  const box = $('photoLightbox');
+  $('lightboxImage').src = publicUrl(photo.image_path);
+  $('lightboxImage').alt = photo.caption || '相册照片';
+  $('lightboxCaption').textContent = photo.caption || `${currentPhotoIndex + 1} / ${currentAlbumPhotos.length}`;
+  const multiple = currentAlbumPhotos.length > 1;
+  $('prevPhoto').style.display = multiple ? 'flex' : 'none';
+  $('nextPhoto').style.display = multiple ? 'flex' : 'none';
+  box.classList.add('open'); box.setAttribute('aria-hidden','false');
+}
+function closePhotoLightbox() { const box=$('photoLightbox'); if (!box) return; box.classList.remove('open'); box.setAttribute('aria-hidden','true'); }
+function showPhoto(step) { if (!currentAlbumPhotos.length) return; currentPhotoIndex=(currentPhotoIndex+step+currentAlbumPhotos.length)%currentAlbumPhotos.length; openPhotoLightbox(currentPhotoIndex); }
 
 async function initPublic() {
   await Promise.all([loadAbout(), loadProjects(), loadGallery()]);
@@ -102,7 +123,14 @@ async function initPublic() {
   if ($('albumModal')) $('albumModal').addEventListener('click', e => { if (e.target === $('albumModal')) closeAlbum(); });
   if ($('closeProjectModal')) $('closeProjectModal').addEventListener('click', closeProject);
   if ($('projectModal')) $('projectModal').addEventListener('click', e => { if (e.target === $('projectModal')) closeProject(); });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeAlbum(); closeProject(); } });
+  if ($('closePhotoLightbox')) $('closePhotoLightbox').addEventListener('click', closePhotoLightbox);
+  if ($('photoLightbox')) $('photoLightbox').addEventListener('click', e => { if (e.target === $('photoLightbox')) closePhotoLightbox(); });
+  if ($('prevPhoto')) $('prevPhoto').addEventListener('click', () => showPhoto(-1));
+  if ($('nextPhoto')) $('nextPhoto').addEventListener('click', () => showPhoto(1));
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { if ($('photoLightbox')?.classList.contains('open')) closePhotoLightbox(); else { closeAlbum(); closeProject(); } }
+    if ($('photoLightbox')?.classList.contains('open')) { if (e.key === 'ArrowLeft') showPhoto(-1); if (e.key === 'ArrowRight') showPhoto(1); }
+  });
 }
 
 async function initAdmin() {
