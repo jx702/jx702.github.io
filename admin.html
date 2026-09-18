@@ -1,13 +1,47 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Jimson Admin</title><link rel="stylesheet" href="style.css"></head><body>
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Jimson Admin</title><link rel="stylesheet" href="style.css"></head>
+<body>
 <header class="nav"><a class="brand" href="index.html">JIMSON<span>.</span></a><nav><a href="index.html">返回网站</a></nav></header>
 <main class="section"><div class="section-head"><p class="eyebrow">ADMIN DASHBOARD</p><h2>网站后台</h2></div>
+
 <div id="login" class="glass admin-box"><h3>管理员登录</h3><p class="muted">使用你在 Supabase Authentication 中创建的账号登录。</p><input id="email" type="email" placeholder="Email" class="field" autocomplete="email"><input id="password" type="password" placeholder="密码" class="field" autocomplete="current-password"><button id="loginBtn" class="btn primary">登录</button><p id="loginMsg" class="status"></p></div>
+
 <div id="dashboard" style="display:none">
-<div class="admin-grid">
-<div class="glass"><h3>新增项目</h3><input id="pt" placeholder="项目标题" class="field"><input id="ptag" placeholder="分类，例如 Design" class="field"><textarea id="pd" placeholder="项目介绍" class="field"></textarea><button id="addProjectBtn" class="btn primary">发布项目</button></div>
-<div class="glass"><h3>上传图片</h3><input id="photo" type="file" accept="image/*" class="field"><button id="addPhotoBtn" class="btn primary">上传到相册</button><p class="muted small">图片会上传到 Supabase Storage 的 gallery。</p><p id="photoMsg" class="status"></p></div>
+  <div class="glass admin-section"><h3>关于我管理</h3><p class="muted small">这里修改主页「关于我」区域的内容，保存后访客会直接看到最新内容。</p><input id="aboutName" placeholder="显示名称，例如 Jimson" class="field"><textarea id="aboutBio" placeholder="自我介绍" class="field"></textarea><input id="aboutInterest" placeholder="兴趣，例如 Design · Technology · Sports" class="field"><input id="aboutCurrent" placeholder="目前，例如 Exploring & Creating" class="field"><input id="aboutWebsite" placeholder="网站名称，例如 Jimson的网" class="field"><button id="saveAboutBtn" class="btn primary">保存关于我</button><p id="aboutMsg" class="status"></p></div>
+
+  <div class="admin-grid">
+    <div class="glass admin-section">
+      <h3>新增项目</h3>
+      <input id="pt" placeholder="项目标题" class="field">
+      <input id="ptag" placeholder="分类，例如 Design" class="field">
+      <textarea id="pd" placeholder="项目介绍" class="field"></textarea>
+      <label class="field-label">项目照片（可选）</label>
+      <input id="projectPhoto" type="file" accept="image/*" class="field">
+      <button id="addProjectBtn" class="btn primary">发布项目</button><p id="projectMsg" class="status"></p>
+    </div>
+
+    <div class="glass admin-section">
+      <h3>创建相册</h3>
+      <input id="albumTitle" placeholder="相册名称，例如 2026 独中杯" class="field">
+      <textarea id="albumDescription" placeholder="相册简介（可选）" class="field"></textarea>
+      <button id="createAlbumBtn" class="btn primary">创建相册</button><p id="albumMsg" class="status"></p>
+    </div>
+  </div>
+
+  <div class="glass admin-section" style="margin-top:18px">
+    <h3>相册图片</h3>
+    <p class="muted small">先选择相册，再选择一张或多张照片。照片会放进该相册。</p>
+    <select id="albumSelect" class="field"><option value="">请选择相册</option></select>
+    <input id="albumPhotos" type="file" accept="image/*" multiple class="field">
+    <input id="photoCaption" placeholder="照片说明（可选，批量上传时会共用）" class="field">
+    <button id="uploadAlbumPhotosBtn" class="btn primary">上传到相册</button><p id="photoMsg" class="status"></p>
+  </div>
+
+  <div class="glass admin-section" style="margin-top:18px"><div class="admin-title"><h3>Projects 管理</h3><button id="logoutBtn" class="btn">退出登录</button></div><div id="items"></div></div>
+
+  <div class="glass admin-section" style="margin-top:18px"><h3>Gallery / 相册管理</h3><div id="albumAdminItems" class="album-admin-list"></div></div>
 </div>
-<div class="glass" style="margin-top:18px"><div class="admin-title"><h3>Projects 管理</h3><button id="logoutBtn" class="btn">退出登录</button></div><div id="items"></div></div>
-<div class="glass" style="margin-top:18px"><h3>Gallery 管理</h3><div id="galleryItems" class="admin-gallery"></div></div>
-</div></main><footer>Jimson Admin</footer>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="script.js"></script></body></html>
+</main><footer>Jimson Admin</footer>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="script.js"></script>
+</body></html>

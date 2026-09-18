@@ -5,25 +5,60 @@ const db = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
 const $ = (id) => document.getElementById(id);
 const escapeHtml = (value='') => String(value).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+const publicUrl = (path) => db.storage.from('gallery').getPublicUrl(path).data.publicUrl;
+const filePath = (name, folder='') => `${folder ? folder + '/' : ''}${Date.now()}-${crypto.randomUUID()}-${name.replace(/[^a-zA-Z0-9._-]/g,'-')}`;
+
+async function loadAbout() {
+  const { data, error } = await db.from('site_content').select('*').eq('id', 1).maybeSingle();
+  if (error) { console.warn('About content unavailable:', error.message); return; }
+  if (!data) return;
+  if ($('about-name')) $('about-name').textContent = data.name || 'Jimson';
+  if ($('about-bio')) $('about-bio').textContent = data.bio || '';
+  if ($('about-interest')) $('about-interest').textContent = data.interest || '';
+  if ($('about-current')) $('about-current').textContent = data.current || '';
+  if ($('about-website')) $('about-website').textContent = data.website || '';
+}
 
 async function loadProjects() {
   const box = $('project-list'); if (!box) return;
   const { data, error } = await db.from('projects').select('*').order('created_at', { ascending:false });
   if (error) { box.innerHTML = '<p class="muted">项目暂时无法加载。</p>'; console.error(error); return; }
   if (!data.length) { box.innerHTML = '<p class="muted">目前还没有项目，可以从 Admin 后台新增。</p>'; return; }
-  box.innerHTML = data.map(p => `<article class="card">${p.image_url ? `<img src="${escapeHtml(p.image_url)}" alt="${escapeHtml(p.title)}">` : ''}<div class="card-body"><p class="tag">${escapeHtml(p.category || 'Project')}</p><h3>${escapeHtml(p.title)}</h3><p>${escapeHtml(p.description || '')}</p></div></article>`).join('');
+  box.innerHTML = data.map(p => `<article class="card">${p.image_url ? `<img src="${escapeHtml(p.image_url)}" alt="${escapeHtml(p.title)}" loading="lazy">` : ''}<div class="card-body"><p class="tag">${escapeHtml(p.category || 'Project')}</p><h3>${escapeHtml(p.title)}</h3><p>${escapeHtml(p.description || '')}</p></div></article>`).join('');
 }
 
 async function loadGallery() {
   const box = $('gallery-list'); if (!box) return;
-  const { data, error } = await db.storage.from('gallery').list('', { limit:100, sortBy:{column:'created_at', order:'desc'} });
-  if (error) { box.innerHTML = '<p class="muted">相册暂时无法加载。</p>'; console.error(error); return; }
-  const files = (data || []).filter(x => x.name && !x.id?.endsWith('/'));
-  if (!files.length) { box.innerHTML = '<p class="muted">目前还没有图片，可以从 Admin 后台上传。</p>'; return; }
-  box.innerHTML = files.map(f => { const { data:urlData } = db.storage.from('gallery').getPublicUrl(f.name); return `<figure class="gallery-item"><img src="${escapeHtml(urlData.publicUrl)}" alt="${escapeHtml(f.name)}" loading="lazy"><figcaption>${escapeHtml(f.name)}</figcaption></figure>`; }).join('');
+  const { data: albums, error } = await db.from('gallery_albums').select('*').order('created_at', { ascending:false });
+  if (error) { box.innerHTML = '<p class="muted">相册暂时无法加载。请检查 Supabase 的 Gallery 表权限。</p>'; console.error(error); return; }
+  if (!albums?.length) { box.innerHTML = '<p class="muted">目前还没有相册，可以从 Admin 后台创建。</p>'; return; }
+  const { data: photos, error: pError } = await db.from('gallery_photos').select('*').order('created_at', { ascending:true });
+  if (pError) { box.innerHTML = '<p class="muted">照片暂时无法加载。</p>'; console.error(pError); return; }
+  const byAlbum = {};
+  (photos || []).forEach(p => (byAlbum[p.album_id] ||= []).push(p));
+  box.innerHTML = albums.map(a => {
+    const list = byAlbum[a.id] || [];
+    const cover = list[0] ? publicUrl(list[0].image_path) : '';
+    return `<button class="album-card" type="button" data-album-id="${escapeHtml(a.id)}"><div class="album-cover">${cover ? `<img src="${escapeHtml(cover)}" alt="${escapeHtml(a.title)}" loading="lazy">` : '<div class="album-placeholder">NO PHOTO</div>'}<span class="album-count">${list.length} 张</span></div><div class="album-info"><h3>${escapeHtml(a.title)}</h3><p>${escapeHtml(a.description || '打开相册查看照片')}</p></div></button>`;
+  }).join('');
+  box.querySelectorAll('.album-card').forEach(btn => btn.addEventListener('click', () => openAlbum(btn.dataset.albumId, albums, byAlbum)));
 }
 
-async function initPublic() { await Promise.all([loadProjects(), loadGallery()]); }
+function openAlbum(albumId, albums, byAlbum) {
+  const album = albums.find(a => a.id === albumId); if (!album) return;
+  const photos = byAlbum[albumId] || [];
+  const modal = $('albumModal'), content = $('modalContent');
+  content.innerHTML = `<div class="modal-head"><p class="eyebrow">GALLERY</p><h2>${escapeHtml(album.title)}</h2><p class="muted">${escapeHtml(album.description || '')}</p></div>${photos.length ? `<div class="modal-gallery">${photos.map(p => `<figure><img src="${escapeHtml(publicUrl(p.image_path))}" alt="${escapeHtml(p.caption || album.title)}" loading="lazy">${p.caption ? `<figcaption>${escapeHtml(p.caption)}</figcaption>` : ''}</figure>`).join('')}</div>` : '<div class="empty">这个相册目前还没有照片。</div>'}`;
+  modal.classList.add('open'); modal.setAttribute('aria-hidden','false'); document.body.classList.add('modal-open');
+}
+function closeAlbum() { const modal=$('albumModal'); if (!modal) return; modal.classList.remove('open'); modal.setAttribute('aria-hidden','true'); document.body.classList.remove('modal-open'); }
+
+async function initPublic() {
+  await Promise.all([loadAbout(), loadProjects(), loadGallery()]);
+  if ($('closeModal')) $('closeModal').addEventListener('click', closeAlbum);
+  if ($('albumModal')) $('albumModal').addEventListener('click', e => { if (e.target === $('albumModal')) closeAlbum(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAlbum(); });
+}
 
 async function initAdmin() {
   const loginBox = $('login'); if (!loginBox) return;
@@ -31,59 +66,43 @@ async function initAdmin() {
   if (session) showDashboard(session.user); else showLogin();
   $('loginBtn').addEventListener('click', login);
   $('logoutBtn').addEventListener('click', logout);
+  $('saveAboutBtn').addEventListener('click', saveAbout);
   $('addProjectBtn').addEventListener('click', addProject);
-  $('addPhotoBtn').addEventListener('click', addPhoto);
+  $('createAlbumBtn').addEventListener('click', createAlbum);
+  $('uploadAlbumPhotosBtn').addEventListener('click', uploadAlbumPhotos);
   db.auth.onAuthStateChange((_event, session) => { if (session) showDashboard(session.user); else showLogin(); });
 }
-
 function showLogin() { $('login').style.display='block'; $('dashboard').style.display='none'; }
-async function showDashboard(user) { $('login').style.display='none'; $('dashboard').style.display='block'; if ($('loginMsg')) $('loginMsg').textContent = `已登录：${user.email}`; await renderAdmin(); }
+async function showDashboard(user) { $('login').style.display='none'; $('dashboard').style.display='block'; if ($('loginMsg')) $('loginMsg').textContent = `已登录：${user.email}`; await Promise.all([loadAboutAdmin(), renderAdmin(), loadAlbumSelect()]); }
+async function login() { const email=$('email').value.trim(), password=$('password').value; if(!email||!password){$('loginMsg').textContent='请输入 Email 和密码。';return;} $('loginMsg').textContent='登录中……'; const {error}=await db.auth.signInWithPassword({email,password}); $('loginMsg').textContent=error?`登录失败：${error.message}`:'登录成功'; }
+async function logout(){await db.auth.signOut();location.reload();}
 
-async function login() {
-  const email = $('email').value.trim(), password = $('password').value;
-  if (!email || !password) { $('loginMsg').textContent='请输入 Email 和密码。'; return; }
-  $('loginMsg').textContent='登录中……';
-  const { error } = await db.auth.signInWithPassword({ email, password });
-  $('loginMsg').textContent = error ? `登录失败：${error.message}` : '登录成功';
+async function loadAboutAdmin(){ const {data,error}=await db.from('site_content').select('*').eq('id',1).maybeSingle(); if(error){$('aboutMsg').textContent='读取关于我失败：'+error.message;return;} if(!data)return; $('aboutName').value=data.name||'';$('aboutBio').value=data.bio||'';$('aboutInterest').value=data.interest||'';$('aboutCurrent').value=data.current||'';$('aboutWebsite').value=data.website||''; }
+async function saveAbout(){ const payload={id:1,name:$('aboutName').value.trim()||'Jimson',bio:$('aboutBio').value.trim(),interest:$('aboutInterest').value.trim(),current:$('aboutCurrent').value.trim(),website:$('aboutWebsite').value.trim()||'Jimson的网'}; $('aboutMsg').textContent='保存中……'; const {error}=await db.from('site_content').upsert(payload,{onConflict:'id'}); $('aboutMsg').textContent=error?'保存失败：'+error.message:'保存成功！'; }
+
+async function uploadProjectImage(file){ if(!file)return {url:null,path:null}; if(!file.type.startsWith('image/')) throw new Error('项目照片只能是图片。'); const path=filePath(file.name,'projects'); const {error}=await db.storage.from('gallery').upload(path,file,{contentType:file.type,upsert:false}); if(error)throw error; return {url:publicUrl(path),path}; }
+async function addProject(){ const title=$('pt').value.trim(),category=$('ptag').value.trim()||'Project',description=$('pd').value.trim(),file=$('projectPhoto').files[0]; if(!title)return alert('请先填写项目标题。'); $('projectMsg').textContent='发布中……'; try{const image=await uploadProjectImage(file); const {error}=await db.from('projects').insert({title,category,description,image_url:image.url,image_path:image.path}); if(error){if(image.path)await db.storage.from('gallery').remove([image.path]);throw error;} $('pt').value='';$('ptag').value='';$('pd').value='';$('projectPhoto').value='';$('projectMsg').textContent='项目发布成功！';await renderAdmin();}catch(e){$('projectMsg').textContent='发布失败：'+e.message;} }
+
+async function editProject(id, oldTitle, oldCategory, oldDescription){ const title=prompt('项目标题：',oldTitle);if(title===null)return;const category=prompt('分类：',oldCategory||'Project');if(category===null)return;const description=prompt('项目介绍：',oldDescription||'');if(description===null)return;const fileInput=document.createElement('input');fileInput.type='file';fileInput.accept='image/*';const wantImage=confirm('要更换项目照片吗？\n点击「确定」选择新照片；点击「取消」保留原照片。');let image=null;if(wantImage){fileInput.click();await new Promise(resolve=>{fileInput.onchange=resolve;});if(fileInput.files[0])image=await uploadProjectImage(fileInput.files[0]);}const payload={title:title.trim(),category:category.trim()||'Project',description:description.trim()};if(image){payload.image_url=image.url;payload.image_path=image.path;}const {error}=await db.from('projects').update(payload).eq('id',id);if(error){if(image?.path)await db.storage.from('gallery').remove([image.path]);alert('修改失败：'+error.message);return;}await renderAdmin();}
+async function deleteProject(id,path){ if(!confirm('确定删除这个项目吗？'))return; const {error}=await db.from('projects').delete().eq('id',id);if(error){alert('删除失败：'+error.message);return;}if(path)await db.storage.from('gallery').remove([path]);await renderAdmin(); }
+
+async function createAlbum(){const title=$('albumTitle').value.trim(),description=$('albumDescription').value.trim();if(!title)return alert('请先填写相册名称。');$('albumMsg').textContent='创建中……';const {data,error}=await db.from('gallery_albums').insert({title,description}).select().single();if(error){$('albumMsg').textContent='创建失败：'+error.message;return;}$('albumTitle').value='';$('albumDescription').value='';$('albumMsg').textContent='相册创建成功！';await loadAlbumSelect();await renderAdmin();if(data)$('albumSelect').value=data.id;}
+async function loadAlbumSelect(){const select=$('albumSelect');if(!select)return;const {data,error}=await db.from('gallery_albums').select('id,title').order('created_at',{ascending:false});if(error){select.innerHTML='<option value="">无法读取相册</option>';return;}select.innerHTML='<option value="">请选择相册</option>'+(data||[]).map(a=>`<option value="${escapeHtml(a.id)}">${escapeHtml(a.title)}</option>`).join('');}
+async function uploadAlbumPhotos(){const albumId=$('albumSelect').value,files=Array.from($('albumPhotos').files||[]),caption=$('photoCaption').value.trim();if(!albumId)return alert('请先选择相册。');if(!files.length)return alert('请选择至少一张图片。');$('photoMsg').textContent=`准备上传 ${files.length} 张……`;let success=0;for(const file of files){try{if(!file.type.startsWith('image/'))throw new Error('只能上传图片');const path=filePath(file.name,`albums/${albumId}`);const {error:uploadError}=await db.storage.from('gallery').upload(path,file,{contentType:file.type,upsert:false});if(uploadError)throw uploadError;const {error:dbError}=await db.from('gallery_photos').insert({album_id:albumId,image_path:path,caption});if(dbError){await db.storage.from('gallery').remove([path]);throw dbError;}success++;$('photoMsg').textContent=`已上传 ${success}/${files.length} 张……`;}catch(e){console.error(e);}}$('albumPhotos').value='';$('photoCaption').value='';$('photoMsg').textContent=`上传完成：${success}/${files.length} 张成功。`;await renderAdmin();}
+async function deleteAlbum(id){if(!confirm('确定删除这个相册吗？相册里的照片记录也会被删除。'))return;const {data:photos}=await db.from('gallery_photos').select('image_path').eq('album_id',id);const {error}=await db.from('gallery_albums').delete().eq('id',id);if(error){alert('删除失败：'+error.message);return;}if(photos?.length)await db.storage.from('gallery').remove(photos.map(p=>p.image_path));await Promise.all([loadAlbumSelect(),renderAdmin()]);}
+async function deleteAlbumPhoto(id,path){if(!confirm('确定删除这张照片吗？'))return;const {error}=await db.from('gallery_photos').delete().eq('id',id);if(error){alert('删除失败：'+error.message);return;}if(path)await db.storage.from('gallery').remove([path]);await renderAdmin();}
+
+async function renderAdmin(){
+  const {data:projects,error:pErr}=await db.from('projects').select('*').order('created_at',{ascending:false});
+  $('items').innerHTML=pErr?`<p class="status">${escapeHtml(pErr.message)}</p>`:projects.length?projects.map(p=>`<div class="admin-row"><div class="admin-row-main">${p.image_url?`<img class="admin-thumb" src="${escapeHtml(p.image_url)}" alt="">`:''}<div><strong>${escapeHtml(p.title)}</strong><span>${escapeHtml(p.category||'Project')}</span><p>${escapeHtml(p.description||'')}</p></div></div><div class="row-actions"><button class="btn" onclick='editProject(${p.id},${JSON.stringify(p.title)},${JSON.stringify(p.category||'')},${JSON.stringify(p.description||'')})'>编辑</button><button class="btn danger" onclick='deleteProject(${p.id},${JSON.stringify(p.image_path||'')})'>删除</button></div></div>`).join(''):'<p class="muted">暂无项目。</p>';
+  const {data:albums,error:aErr}=await db.from('gallery_albums').select('*').order('created_at',{ascending:false});
+  if(aErr){$('albumAdminItems').innerHTML=`<p class="status">${escapeHtml(aErr.message)}</p>`;return;}
+  const {data:photos,error:fErr}=await db.from('gallery_photos').select('*').order('created_at',{ascending:true});
+  if(fErr){$('albumAdminItems').innerHTML=`<p class="status">${escapeHtml(fErr.message)}</p>`;return;}
+  const byAlbum={};(photos||[]).forEach(p=>(byAlbum[p.album_id]||=[]).push(p));
+  $('albumAdminItems').innerHTML=albums?.length?albums.map(a=>{const list=byAlbum[a.id]||[];return `<div class="album-admin"><div class="album-admin-head"><div><h4>${escapeHtml(a.title)}</h4><p>${escapeHtml(a.description||'')} · ${list.length} 张照片</p></div><div class="row-actions"><button class="btn" onclick='selectAlbumForUpload(${JSON.stringify(a.id)})'>上传照片</button><button class="btn danger" onclick='deleteAlbum(${JSON.stringify(a.id)})'>删除相册</button></div></div><div class="admin-photo-grid">${list.length?list.map(p=>`<div class="admin-photo"><img src="${escapeHtml(publicUrl(p.image_path))}" alt=""><div><small>${escapeHtml(p.caption||'无说明')}</small><button class="btn danger" onclick='deleteAlbumPhoto(${JSON.stringify(p.id)},${JSON.stringify(p.image_path)})'>删除照片</button></div></div>`).join(''):'<p class="muted">这个相册还没有照片。</p>'}</div></div>`;}).join(''):'<p class="muted">暂无相册。</p>';
 }
-async function logout() { await db.auth.signOut(); location.reload(); }
+function selectAlbumForUpload(id){$('albumSelect').value=id;window.scrollTo({top:$('albumSelect').getBoundingClientRect().top+window.scrollY-120,behavior:'smooth'});}
 
-async function addProject() {
-  const title=$('pt').value.trim(), category=$('ptag').value.trim() || 'Project', description=$('pd').value.trim();
-  if (!title) return alert('请先填写项目标题。');
-  const { error } = await db.from('projects').insert({title, category, description});
-  if (error) return alert('发布失败：'+error.message);
-  $('pt').value=''; $('ptag').value=''; $('pd').value=''; await renderAdmin(); alert('项目已发布！');
-}
-
-async function addPhoto() {
-  const file=$('photo').files[0]; if (!file) return alert('请选择图片。');
-  if (!file.type.startsWith('image/')) return alert('只能上传图片。');
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g,'-');
-  const path = `${Date.now()}-${crypto.randomUUID()}-${safeName}`;
-  $('photoMsg').textContent='上传中……';
-  const { error } = await db.storage.from('gallery').upload(path, file, { contentType:file.type, upsert:false });
-  $('photoMsg').textContent = error ? `上传失败：${error.message}` : '上传成功！';
-  if (!error) { $('photo').value=''; await renderAdmin(); }
-}
-
-async function editProject(id, oldTitle, oldCategory, oldDescription) {
-  const title=prompt('项目标题：', oldTitle); if (title===null) return;
-  const category=prompt('分类：', oldCategory || 'Project'); if (category===null) return;
-  const description=prompt('项目介绍：', oldDescription || ''); if (description===null) return;
-  const { error } = await db.from('projects').update({title, category, description}).eq('id', id);
-  if (error) alert('修改失败：'+error.message); else await renderAdmin();
-}
-async function deleteProject(id) { if (!confirm('确定删除这个项目吗？')) return; const { error }=await db.from('projects').delete().eq('id',id); if(error) alert('删除失败：'+error.message); else await renderAdmin(); }
-async function deletePhoto(name) { if (!confirm('确定删除这张图片吗？')) return; const { error }=await db.storage.from('gallery').remove([name]); if(error) alert('删除失败：'+error.message); else await renderAdmin(); }
-
-async function renderAdmin() {
-  const { data:projects, error:pErr }=await db.from('projects').select('*').order('created_at',{ascending:false});
-  $('items').innerHTML = pErr ? `<p class="status">${escapeHtml(pErr.message)}</p>` : projects.length ? projects.map(p=>`<div class="admin-row"><div><strong>${escapeHtml(p.title)}</strong><span>${escapeHtml(p.category||'Project')}</span><p>${escapeHtml(p.description||'')}</p></div><div class="row-actions"><button class="btn" onclick='editProject(${p.id},${JSON.stringify(p.title)},${JSON.stringify(p.category||'')},${JSON.stringify(p.description||'')})'>编辑</button><button class="btn danger" onclick="deleteProject(${p.id})">删除</button></div></div>`).join('') : '<p class="muted">暂无项目。</p>';
-  const { data:files, error:fErr }=await db.storage.from('gallery').list('',{limit:100,sortBy:{column:'created_at',order:'desc'}});
-  const valid=(files||[]).filter(x=>x.name);
-  $('galleryItems').innerHTML=fErr ? `<p class="status">${escapeHtml(fErr.message)}</p>` : valid.length ? valid.map(f=>{const {data:u}=db.storage.from('gallery').getPublicUrl(f.name); return `<div class="admin-photo"><img src="${escapeHtml(u.publicUrl)}" alt=""><div><small>${escapeHtml(f.name)}</small><button class="btn danger" onclick='deletePhoto(${JSON.stringify(f.name)})'>删除</button></div></div>`}).join('') : '<p class="muted">暂无图片。</p>';
-}
-
-if ($('project-list') || $('gallery-list')) initPublic();
-if ($('login')) initAdmin();
+if($('project-list')||$('gallery-list'))initPublic();
+if($('login'))initAdmin();
